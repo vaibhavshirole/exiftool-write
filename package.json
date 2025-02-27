@@ -1,0 +1,47 @@
+{
+  "name": "@uswriting/exiftool",
+  "version": "1.0.0",
+  "description": "ExifTool powered by WebAssembly to extract metadata from files in browsers and Node.js environments using zeroperl",
+  "scripts": {
+    "build": "node build.mjs && tsc --emitDeclarationOnly",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "exports": {
+    "import": "./dist/esm/index.esm.js",
+    "types": "./dist/types/index.d.ts"
+  },
+  "keywords": [
+    "exiftool",
+    "metadata",
+    "exif",
+    "iptc",
+    "xmp",
+    "wasm",
+    "webassembly",
+    "browser",
+    "node",
+    "universal",
+    "files",
+    "images",
+    "documents",
+    "media",
+    "zeroperl"
+  ],
+  "author": "United States Writing Corporation",
+  "license": "Apache-2.0",
+  "type": "module",
+  "homepage": "https://github.com/uswriting/exiftool#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uswriting/exiftool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/uswriting/exiftool/issues"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "esbuild-raw-plugin": "^0.1.1",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {}
+}
