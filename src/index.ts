@@ -139,7 +139,7 @@ export async function parseMetadata<TReturn = string>(
   const wasiOptions: WASIOptions = {
     env: {
       LC_ALL: "C",
-      PERL_UNICODE: "SD",
+      PERL_UNICODE: "SAD",
     },
     args: args,
     features: [

@@ -1,6 +1,6 @@
 {
   "name": "@uswriting/exiftool",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ExifTool powered by WebAssembly to extract metadata from files in browsers and Node.js environments using zeroperl",
   "scripts": {
     "build": "node build.mjs && tsc --emitDeclarationOnly",
