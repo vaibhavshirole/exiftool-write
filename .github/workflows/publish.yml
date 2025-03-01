@@ -25,6 +25,12 @@ jobs:
       - name: Build package
         run: npm run build
 
+      - name: Prepare release
+        run: |
+          rm -rf ./dist/esm/types/wasi
+          rm -f ./dist/esm/types/ex.d.ts
+          rm -f ./dist/esm/types/sb.d.ts
+
       - name: Publish package to NPM
         run: npm publish --provenance --access public --tag latest
         env:
