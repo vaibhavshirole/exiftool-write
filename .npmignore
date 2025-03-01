@@ -4,3 +4,4 @@ tests
 build.mjs
 src
 tsconfig.json
+.github
