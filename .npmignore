@@ -1,3 +1,6 @@
 demo
 node_modules
 tests
+build.mjs
+src
+tsconfig.json

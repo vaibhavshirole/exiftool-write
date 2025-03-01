@@ -27,9 +27,9 @@ jobs:
 
       - name: Prepare release
         run: |
-          rm -rf ./dist/esm/types/wasi
-          rm -f ./dist/esm/types/ex.d.ts
-          rm -f ./dist/esm/types/sb.d.ts
+          rm -rf ./dist/types/wasi
+          rm -f ./dist/types/ex.d.ts
+          rm -f ./dist/types/sb.d.ts
 
       - name: Publish package to NPM
         run: npm publish --provenance --access public --tag latest
