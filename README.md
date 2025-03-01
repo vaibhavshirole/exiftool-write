@@ -1,6 +1,6 @@
 # @uswriting/exiftool
 
-[ExifTool](https://exiftool.org) powered by WebAssembly to extract metadata from files in browsers and Node.js environments using [zeroperl](https://github.com/uswriting/zeroperl).
+[ExifTool](https://exiftool.org) (13.11) powered by WebAssembly to extract metadata from files in browsers and Node.js environments using [zeroperl](https://github.com/uswriting/zeroperl).
 
 ## Installation
 
