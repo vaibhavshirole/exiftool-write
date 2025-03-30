@@ -1,5 +1,4 @@
 import exiftool from "./ex";
-import exiftoolRaw from "./ex"; // Import the raw string content
 import { MemoryFileSystem, useMemoryFS } from "./wasi/features/fd";
 import {
   useArgs,
@@ -16,6 +15,8 @@ import { StringBuilder } from "./sb";
 
 const cdn = "https://perl.objex.ai/zeroperl-1.0.0.wasm";
 type FetchLike = (...args: any[]) => Promise<Response>;
+
+const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
@@ -272,199 +273,239 @@ async function parseMetadata<TReturn = string>(
 }
 
 /**
- * Writes metadata to a file using ExifTool in Wasm.
+ * Writes metadata to a file using ExifTool running in WebAssembly.
+ * Creates a new file in memory with the modifications.
  *
- * @param file The file to modify (as a browser File or a BinaryFile object).
- * @param options Configuration options including the tags to write.
- * @returns Promise resolving to the write result, containing the modified file data on success.
- *
+ * @param file The file to modify (browser File or { name: string, data: Uint8Array | Blob }).
+ * @param options Options: tags to write, optional config file, extra ExifTool args.
+ * @returns Promise resolving to the result, containing the modified file data on success.
+ * 
  * @example
- * // Assuming 'jpegFile' is a File object and 'configData' is a Uint8Array of the config file
- * const result = await writeMetadata(jpegFile, {
- *   tags: [
- *     "-XMP-GCamera:MicroVideo=1",
- *     "-XMP-GCamera:MicroVideoOffset=123456",
- *     "-XMP-GCamera:MicroVideoPresentationTimestampUs=0"
- *   ],
- *   configFile: { name: "google.config", data: configData },
- *   extraArgs: ["-m", "-q"] // Ignore minor errors, be quiet
- * });
- *
+ * 
+ * 1. Input file as File obj
+ * let selectedFile: File | null = null; 
+ * 
+ * 2. (optional) config file for custom tags
+ * const configFileContent = await loadConfigFile('/google.config');
+ * 
+ * 3. Set up descriptors
+ * const options: ExifToolWriteOptions = {
+ *   tags: ["-XMP-GCamera:MicroVideo=1", "-XMP-GCamera:MicroVideoVersion=1"],
+ *   extraArgs: ["-m", "-q"],
+ *   configFile: configFileContent,
+ * };
+ * 
+ * 4. Call function
+ * const result = await writeMetadata(selectedFile, options);
+ * 
  * if (result.success) {
- *   // result.data contains the Uint8Array of the modified file
- *   const blob = new Blob([result.data], { type: jpegFile.type });
- *   // Now you can offer the blob for download
- *   console.log("Metadata written successfully!");
- * } else {
- *   console.error("Error writing metadata:", result.error);
+ *   console.log("Modified file size: ", result.data.byteLength);
+ *   const blob = new Blob([result.data], { type: selectedFile.type });
  * }
  */
 async function writeMetadata(
   file: Binaryfile | File,
   options: ExifToolWriteOptions
 ): Promise<ExifToolWriteResult> {
+ 
+  /* 1. Prepare and add ExifTool Perl script */
+  const fileSystem = new MemoryFileSystem({ "/": "" }); //Initialize Virtual Filesystem in memory for WASM process
 
-  // 1. Initialize MemoryFileSystem
-  const fileSystem = new MemoryFileSystem({ "/": "" });
-
-  // 2. Prepare and add ExifTool script data
   let exiftoolData: Uint8Array;
-  if (typeof exiftoolRaw === 'string') {
-    exiftoolData = new TextEncoder().encode(exiftoolRaw);
+  if (typeof exiftool === 'string') {                   // `exiftool` is a string containing the Perl script
+    exiftoolData = textEncoder.encode(exiftool);        // Convert UTF-8 string to bytes for virtual filesystem
   } else {
-      console.error("Unexpected type for imported exiftool script data:", typeof exiftoolRaw);
-      return { success: false, data: undefined, error: "Internal error: ExifTool script data is not a string.", exitCode: undefined };
+      console.error("Unexpected type for imported exiftool script data:", typeof exiftool);
+      return { success: false, data: undefined, 
+        error: "Internal error: ExifTool script data is not a string.", exitCode: undefined };
   }
-  fileSystem.addFile("/exiftool", exiftoolData);
+  fileSystem.addFile("/exiftool", exiftoolData);        // Add script to vritual filesystem
 
-  // 3. Prepare and add the input file data
-  const inputFilename = file instanceof File ? file.name : file.name;
+  /* 2. Prepare and add input file data */
+  const inputFilename = file instanceof File ? file.name : file.name;             // Get filename
   const sanitizedInputFilename = inputFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
-  // Define distinct input and output paths in the virtual FS
-  const inputFilePath = `/source_${sanitizedInputFilename}`; // e.g., /source_image.jpg
-  const outputFilePath = `/output_${sanitizedInputFilename}`; // e.g., /output_image.jpg
+  const inputFilePath = `/source_${sanitizedInputFilename}`;                      // ExifTool reads here
+  const outputFilePath = `/output_${sanitizedInputFilename}`;                     // ExifTool writes here
 
-  const fileData = file instanceof File ? new Uint8Array(await file.arrayBuffer()) : file.data;
+  const fileData = file instanceof File ? new Uint8Array(await file.arrayBuffer()) : file.data; // File data as bytes
   if (!(fileData instanceof Uint8Array) && !(fileData instanceof Blob)) {
-      return { success: false, data: undefined, error: "Input file data must be Uint8Array or Blob.", exitCode: undefined };
+      return { success: false, data: undefined, 
+        error: "Input file data must be Uint8Array or Blob.", exitCode: undefined };
   }
-  fileSystem.addFile(inputFilePath, fileData); // Add the input file
 
-  // 4. Add the config file to virtual FS (if provided)
-  let configFilePath: string | undefined; // Still need the path
+  fileSystem.addFile(inputFilePath, fileData);  // Add input file data to virtual filesystem
+
+  /* 3. Prepare and add config file (optional) */
+  let configFilePath: string | undefined; 
   if (options.configFile) {
     if (!(options.configFile.data instanceof Uint8Array)) {
-       return { success: false, data: undefined, error: "Config file data must be Uint8Array.", exitCode: undefined };
+       return { success: false, data: undefined, 
+        error: "Config file data must be Uint8Array.", exitCode: undefined };
     }
+
     configFilePath = `/${options.configFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     fileSystem.addFile(configFilePath, options.configFile.data);
   } else {
-    // If custom tags are used, a config file is mandatory
-    // Add a check here if your logic depends on the config file always being present for certain tags
-    console.warn("Writing custom XMP tags but no config file provided. This might fail if tags are undefined.");
-    // Optionally return an error:
-    // return { success: false, data: undefined, error: "Config file required for custom tags.", exitCode: undefined };
+    console.warn("Writing metadata, possibly custom tags, \
+      but no config file provided via options.configFile. \
+      This might fail if tags are undefined by ExifTool.");
   }
 
-  // 5. Construct the command-line arguments for writing
-  const exiftoolArgs = ["zeroperl", "exiftool"]; // Base command
+  /* 4. Construct exiftool args to pass to `zeroperl /exiftool` command inside WASI */
+  const exiftoolArgs = [
+      "zeroperl",                   // The Perl interpreter Wasm binary command
+      "exiftool",                   // The virtual path to the ExifTool Perl script
+      ...(options.extraArgs || []), 
+      ...(options.tags || []),
+      "-o", outputFilePath,         // Tell ExifTool to write output to this *new* virtual path
+      inputFilePath                 // Specify the virtual input file path
+  ];
+  // NOTE: NOT using `-overwrite_original` or `-overwrite_original_in_place`.
+  // NOTE: NOT using the `-config` command-line argument here.
 
-  // --- DO NOT ADD -config TO ARGUMENTS ---
-  // if (configFilePath) {
-  //   exiftoolArgs.push("-config");
-  //   exiftoolArgs.push(configFilePath);
-  // }
+  /* 5. Setup WASI environment */
+  const stderr = new StringBuilder(); // Utility to collect stderr output as a string
 
-  // --- Add other arguments ---
-  exiftoolArgs.push(...(options.extraArgs || []));
-  exiftoolArgs.push(...options.tags);
-  exiftoolArgs.push("-o", outputFilePath);
-  exiftoolArgs.push(inputFilePath);
-
-  // 6. Setup WASI environment
-  const stderr = new StringBuilder();
-
-  // --- Define the environment variables ---
+  // NOTE:
+  // Define environment variables for the Wasm process.
+  // The EXIFTOOL_CONFIG environment variable is used to specify the config file path,
+  // bypassing issues with the `-config` command-line argument order.
   const wasiEnv = {
-    LC_ALL: "C",
-    PERL_UNICODE: "SAD",
-    // --- ADD EXIFTOOL_CONFIG if config file exists ---
+    LC_ALL: "C",         // Standard locale settings
+    PERL_UNICODE: "SAD", // Perl Unicode settings
+    // Conditionally add EXIFTOOL_CONFIG using spread syntax if configFilePath is set.
     ...(configFilePath && { EXIFTOOL_CONFIG: configFilePath })
   };
-  // --- Log the environment being passed ---
-  console.log("[DEBUG] WASI Environment:", wasiEnv);
+  console.log("[DEBUG] WASI Environment:", wasiEnv); // Log for debugging
 
+  // Combine all WASI options and create instance
   const wasiOptions: WASIOptions = {
-    env: wasiEnv, // Pass the constructed environment
-    args: exiftoolArgs,
-    features: [
-      useEnviron, // Make sure useEnviron is included to process the env object
-      useArgs, useRandom, useClock, useProc,
-      useMemoryFS({
-        withFileSystem: fileSystem,
-        withStdIo: { stderr: (str) => { /* capture stderr */
+    env: wasiEnv,       // Environment variables defined above
+    args: exiftoolArgs, // Command-line arguments defined above
+    features: [         // Specify which WASI features to enable
+      useEnviron,       // Enables environment variable support (`env`)
+      useArgs,          // Enables command-line argument support (`args`)
+      useRandom,        // Provides random number generation
+      useClock,         // Provides time/clock access
+      useProc,          // Provides process exit (`proc_exit`)
+      useMemoryFS({     // Enables filesystem access using our virtual `MemoryFileSystem`
+        withFileSystem: fileSystem, // Provide the filesystem instance we created
+        withStdIo: {                // Configure standard input/output/error
+          // Capture stderr: Decode bytes to string and append to our StringBuilder.
+          stderr: (str) => {
              if (ArrayBuffer.isView(str)) str = textDecoder.decode(str);
              if (StringBuilder.isMultiline(str)) stderr.append(str); else stderr.appendLine(str);
-         }, stdout: () => {} }
+          },
+          stdout: () => {} // We don't expect relevant stdout, so ignore it.
+        }
       })
     ]
   };
-  const wasi = new WASI(wasiOptions); // Pass the full options here
+  const wasi = new WASI(wasiOptions);
 
-  // 7. Fetch and instantiate Wasm (same as before)
+  /* 6. Instantiate WASM module */
   const f = options.fetch ?? fetch;
   let instance: WebAssembly.Instance;
   try {
-      instance = (await instantiateStreaming(f(cdn), { wasi_snapshot_preview1: wasi.wasiImport })).instance;
+      const result = await instantiateStreaming(f(cdn), {
+          wasi_snapshot_preview1: wasi.wasiImport,
+      });
+      instance = result.instance; // The running instance of the Wasm module
   } catch (err) {
       const message = (err instanceof Error) ? err.message : String(err);
       return { success: false, data: undefined, error: `Wasm instantiation failed: ${message}`, exitCode: undefined };
   }
 
-  // 8. Run the Wasm process (same as before)
+  /* 7. Run WASM process */
   let exitCode: number | undefined;
   let runError: Error | WASIProcExit | unknown | undefined;
   try {
+      // `wasi.start` runs the `_start` function. It returns the exit code if the process
+      // exits normally, or throws an error (like `WASIProcExit`) if it terminates abnormally.
       exitCode = await wasi.start(instance);
   } catch (err) {
+      // Catch errors during Wasm execution.
       runError = err;
-      if (err instanceof WASIProcExit) exitCode = err.code;
-      else exitCode = undefined; // Unknown exit code on other errors
+      if (err instanceof WASIProcExit) {
+          // If it's a controlled exit (e.g., `exit(1)` called in Perl), get the code.
+          exitCode = err.code;
+          console.log(`WASI process exited via proc_exit with code: ${exitCode}`);
+      } else {
+          // For other unexpected errors, the exit code is unknown.
+          console.error("Error during wasi.start:", err);
+          exitCode = undefined;
+      }
   }
 
+  // Get all captured stderr output.
   const stderrOutput = stderr.toString();
 
-  // 9. Check exit code and handle errors (same as before)
+  /* 8. Check resultcode and errors */
+  // ExifTool return: 0-success, 1-errors/warnings, 2-condition fail.
   if (exitCode !== 0) {
       let errorMsg = stderrOutput;
-      if (!errorMsg) {
+      if (!errorMsg) { // If stderr was empty, use info from the runtime error.
           if (runError && !(runError instanceof WASIProcExit)) {
                const message = (runError instanceof Error) ? runError.message : String(runError);
-               errorMsg = `WASI start failed: ${message}`;
-          } else { errorMsg = `ExifTool exited with code ${exitCode}`; }
+               errorMsg = `WASI execution failed: ${message}`;
+          } else {
+               // Default message if no specific error details are available.
+               errorMsg = `ExifTool process exited with code ${exitCode}`;
+          }
       }
       console.error(`ExifTool process failed. Exit code: ${exitCode}. Stderr:\n${stderrOutput}`);
+
       return { success: false, data: undefined, error: errorMsg, exitCode };
   }
 
-  // 10. Retrieve the *output* file data from the virtual filesystem
+  /* 9. Get output file data from virtual filesystem */
   let modifiedFileData: Uint8Array | undefined;
   try {
-      // --- Lookup the DEFINED OUTPUT PATH ---
       const node = fileSystem.lookup(outputFilePath);
 
+      // Check if the node was found and is a file.
       if (!node) {
-          // If exiftool succeeded (exit 0) but output file doesn't exist, something is wrong.
           throw new Error(`Output file node not found at path: ${outputFilePath} despite exit code 0.`);
       } else if (node.type !== 'file') {
           throw new Error(`Output node at path ${outputFilePath} is not a file (type: ${node.type})`);
       } else {
+          // Access the file content. It should be Uint8Array or potentially Blob.
           const fileContent = node.content;
           if (fileContent instanceof Uint8Array) {
+              // If it's already bytes, use it directly.
               modifiedFileData = fileContent;
           } else if (fileContent instanceof Blob) {
+              // If it's a Blob, convert it to bytes (Uint8Array). `await` is needed here.
               console.log("[DEBUG] Retrieved output file content as Blob, converting to Uint8Array.");
               modifiedFileData = new Uint8Array(await fileContent.arrayBuffer());
-          } else { throw new Error(`Unexpected content type for output file node at ${outputFilePath}`); }
+          } else {
+              // Should not happen based on `FileNode` definition.
+              throw new Error(`Unexpected content type for output file node at ${outputFilePath}`);
+          }
       }
   } catch(lookupError) {
+      // Handle errors during file retrieval from the virtual filesystem.
        const message = (lookupError instanceof Error) ? lookupError.message : String(lookupError);
        console.error(`Failed to retrieve output file from virtual FS at ${outputFilePath}:`, message);
-       return { success: false, data: undefined, error: `Internal error retrieving output: ${message}. Warnings: ${stderrOutput}`, exitCode: 0 };
+       // Return failure, including any stderr warnings from ExifTool.
+       return { success: false, data: undefined, 
+        error: `Internal error retrieving output: ${message}. 
+        Warnings: ${stderrOutput}`, exitCode: 0 }; // Exit code was 0, but retrieval failed
   }
 
   // Final check
   if (!modifiedFileData) {
        console.error(`ExifTool reported success (exit 0), but failed to retrieve valid output file data at ${outputFilePath}.`);
-        return { success: false, data: undefined, error: `Internal error: Output data retrieval failed despite exit code 0. Warnings: ${stderrOutput}`, exitCode: 0 };
+        return { success: false, data: undefined, 
+          error: `Internal error: Output data retrieval failed despite exit code 0. Warnings: ${stderrOutput}`, exitCode: 0 };
   }
 
-  // 11. Return success with the output data
+  /* 10. Return result object with filedata */
   console.log(`[DEBUG] Successfully retrieved output file data from ${outputFilePath}. Size: ${modifiedFileData.byteLength} bytes.`);
   return {
     success: true,
-    data: modifiedFileData, // This is the content of the *new* output file
-    warnings: stderrOutput,
+    data: modifiedFileData, // The binary content of the output file
+    warnings: stderrOutput, // Include any warnings from ExifTool's stderr
     exitCode: 0,
   };
 }
