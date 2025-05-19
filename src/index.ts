@@ -23,7 +23,7 @@ const textDecoder = new TextDecoder();
  * Configuration options for parsing file metadata with ExifTool
  * @template TReturn The type of the transformed output data
  */
-interface ExifToolOptions<TReturn> {
+export interface ExifToolOptions<TReturn> {
   /**
    * Additional command-line arguments to pass to ExifTool
    *
@@ -59,7 +59,7 @@ interface ExifToolOptions<TReturn> {
 /**
  * Represents a binary file for metadata extraction
  */
-type Binaryfile = {
+export type Binaryfile = {
   /** Filename with extension (e.g., "image.jpg") */
   name: string;
   /** The binary content of the file */
@@ -70,7 +70,7 @@ type Binaryfile = {
  * Result of an ExifTool metadata extraction operation
  * @template TOutput The type of the output data after transformation
  */
-type ExifToolOutput<TOutput> =
+export type ExifToolOutput<TOutput> =
   | {
       /** True when metadata was successfully extracted */
       success: true;
@@ -94,17 +94,17 @@ type ExifToolOutput<TOutput> =
 
 // Types for supporting JSON object input for tags in writeMetadata
 /** Defines possible values for a tag when using `TagsObject`. */
-type TagValue = string | number | boolean | (string | number | boolean)[];
+export type TagValue = string | number | boolean | (string | number | boolean)[];
 
 /**
  * Represents tags as a JavaScript object for writing metadata.
  * Keys are tag names (e.g., "Comment", "IPTC:Keywords"), and values are the data.
  * @example { "IPTC:Credit": "Photographer", "IPTC:Keywords": ["test", "keyword"] }
  */
-type TagsObject = Record<string, TagValue>;
+export type TagsObject = Record<string, TagValue>;
 
 /** Configuration options for writing file metadata with ExifTool. */
-interface ExifToolWriteOptions {
+export interface ExifToolWriteOptions {
   /**
    * Tags to write to the file. Can be provided in two formats:
    * 1. An array of strings, where each string is a complete ExifTool tag assignment argument.
@@ -135,7 +135,7 @@ interface ExifToolWriteOptions {
 /**
  * Result of an ExifTool metadata writing operation
  */
-type ExifToolWriteResult =
+export type ExifToolWriteResult =
   | {
       /** True when metadata was successfully written */
       success: true;
@@ -186,7 +186,7 @@ type ExifToolWriteResult =
  *   console.log(result.data); // Typed access to specific metadata
  * }
  */
-async function parseMetadata<TReturn = string>(
+export async function parseMetadata<TReturn = string>(
   file: Binaryfile | File,
   options: ExifToolOptions<TReturn> = {}
 ): Promise<ExifToolOutput<TReturn>> {
@@ -298,7 +298,7 @@ function transformTagsObjectToStringArray(tagsObj: TagsObject): string[] {
  * @param options Configuration for tags, ExifTool config, and other arguments.
  * @returns A promise resolving to the write result, with modified file data on success.
  */
-async function writeMetadata(
+export async function writeMetadata(
   file: Binaryfile | File,
   options: ExifToolWriteOptions
 ): Promise<ExifToolWriteResult> {
@@ -453,6 +453,3 @@ async function writeMetadata(
     exitCode: 0 
   };
 }
-
-export { parseMetadata, writeMetadata };
-export type { ExifToolOptions, ExifToolOutput, ExifToolWriteOptions, ExifToolWriteResult, Binaryfile, TagsObject, TagValue };
