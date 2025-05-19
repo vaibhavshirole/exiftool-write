@@ -41,9 +41,6 @@
   "devDependencies": {
     "esbuild": "^0.25.0",
     "esbuild-raw-plugin": "^0.1.1",
-    "typescript": "^5.8.2"
-  },
-  "dependencies": {
-    "@uswriting/exiftool": "^1.0.3"
+    "typescript": "^5.7.3"
   }
 }
